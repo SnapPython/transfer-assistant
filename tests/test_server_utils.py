@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from transfer_assistant.server import AppConfig, hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, validate_web_login, verify_session_value, verify_totp
+from transfer_assistant.server import AppConfig, LoginLockout, hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, validate_web_login, verify_session_value, verify_totp
 
 
 def test_sanitize_filename_removes_path_parts_and_unsafe_chars():
@@ -53,3 +53,24 @@ def test_totp_only_web_login_does_not_accept_api_token():
     )
     assert not validate_web_login({"token": "api-token"}, config)
     assert validate_web_login({"totp": hotp(config.totp_secret, int(__import__("time").time()) // 30)}, config)
+
+
+def test_login_lockout_locks_after_three_consecutive_failures():
+    now = 1_000.0
+    limiter = LoginLockout(max_failures=3, lock_seconds=60, now=lambda: now)
+
+    assert limiter.record_failure("203.0.113.10") == 0
+    assert limiter.record_failure("203.0.113.10") == 0
+    assert limiter.record_failure("203.0.113.10") == 60
+    assert limiter.retry_after("203.0.113.10") == 60
+
+
+def test_login_lockout_success_resets_failures():
+    now = 1_000.0
+    limiter = LoginLockout(max_failures=3, lock_seconds=60, now=lambda: now)
+
+    assert limiter.record_failure("203.0.113.10") == 0
+    assert limiter.record_failure("203.0.113.10") == 0
+    limiter.record_success("203.0.113.10")
+
+    assert limiter.record_failure("203.0.113.10") == 0

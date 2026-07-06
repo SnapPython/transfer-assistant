@@ -9,8 +9,9 @@
 ## 安全设计
 
 - API 读写必须带 `Authorization: Bearer <FTA_TOKEN>`。
-- Web 页面通过 `/api/login` 登录，服务端返回 `HttpOnly` session cookie；令牌不再长期保存到 `localStorage`。
+- Web 页面通过 `/api/login` 登录，服务端返回 30 天有效的网页登录 session；Pages 前端只保存这个限时 session，不保存 `FTA_TOKEN`。
 - 设置 `FTA_WEB_AUTH_MODE=totp` 和 `FTA_TOTP_SECRET` 后，网页登录只需要 Google Authenticator 等应用生成的 6 位 TOTP 验证码。
+- Web 登录默认连续错误 3 次后锁定 15 分钟，可用 `FTA_LOGIN_LOCK_FAILURES` 和 `FTA_LOGIN_LOCK_SECONDS` 调整。
 - CLI/Codex 仍可使用 `Authorization: Bearer <FTA_TOKEN>` 或 `X-FTA-Token: <FTA_TOKEN>`。
 - 上传文件名会清理，文件保存到数据目录，不会按用户传入路径写入。
 - 上传大小默认限制为 512 MB，可用 `FTA_MAX_UPLOAD_MB` 调整。
@@ -61,6 +62,13 @@ FTA_WEB_AUTH_MODE=totp        # 只用 Google Authenticator
 
 生产环境当前推荐 `FTA_WEB_AUTH_MODE=totp`。CLI/Codex 继续使用独立的 `FTA_TOKEN`。
 
+网页登录失败锁定：
+
+```bash
+FTA_LOGIN_LOCK_FAILURES=3
+FTA_LOGIN_LOCK_SECONDS=900
+```
+
 如果使用 Linux VPS 上的绑定目录保存数据，第一次启动前建议设置目录权限：
 
 ```bash
@@ -98,7 +106,7 @@ tailscale serve --bg --yes --http=8787 8787
 tailscale funnel --bg --yes 8787
 ```
 
-Funnel 开启后，公网访问地址通常是 `https://<machine>.<tailnet>.ts.net/`。任何人能打开页面，但必须使用 `FTA_TOKEN` 登录后才能读写文件和文本。
+Funnel 开启后，公网访问地址通常是 `https://<machine>.<tailnet>.ts.net/`。任何人能打开页面，但必须通过配置的网页登录方式后才能读写文件和文本。
 
 ## GitHub Pages 前端
 
@@ -108,7 +116,7 @@ GitHub Pages 只能托管静态文件，不能运行上传 API 或保存文件�
 - VPS：继续运行 API、认证和文件存储。
 - `docs/static/config.js`：配置 Pages 前端连接的 VPS API 地址。
 
-Pages 前端使用当前标签页内的登录令牌调用 API，不把令牌长期写入 `localStorage`。VPS 后端需要允许 Pages 来源：
+Pages 前端使用网页登录后签发的限时 session 调用 API，不把 `FTA_TOKEN` 写入 `localStorage`。VPS 后端需要允许 Pages 来源：
 
 ```bash
 FTA_CORS_ORIGINS=https://snappython.github.io

@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import uuid
@@ -20,7 +21,7 @@ from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -29,6 +30,8 @@ DEFAULT_MAX_UPLOAD_MB = 512
 DEFAULT_MAX_TEXT_CHARS = 200_000
 SESSION_COOKIE = "fta_session"
 SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+LOGIN_LOCK_FAILURES = 3
+LOGIN_LOCK_SECONDS = 15 * 60
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,8 @@ class AppConfig:
     cors_origins: tuple[str, ...]
     totp_secret: str
     web_auth_mode: str
+    login_lock_failures: int = LOGIN_LOCK_FAILURES
+    login_lock_seconds: int = LOGIN_LOCK_SECONDS
 
     @property
     def db_path(self) -> Path:
@@ -52,6 +57,52 @@ class AppConfig:
     @property
     def temp_dir(self) -> Path:
         return self.data_dir / "tmp"
+
+
+@dataclass
+class LoginAttempt:
+    failures: int = 0
+    locked_until: float = 0.0
+
+
+class LoginLockout:
+    def __init__(self, max_failures: int = LOGIN_LOCK_FAILURES, lock_seconds: int = LOGIN_LOCK_SECONDS, now: Callable[[], float] | None = None):
+        self.max_failures = max(1, max_failures)
+        self.lock_seconds = max(1, lock_seconds)
+        self._now = now or time.monotonic
+        self._attempts: dict[str, LoginAttempt] = {}
+        self._lock = threading.Lock()
+
+    def retry_after(self, key: str) -> int:
+        now = self._now()
+        with self._lock:
+            attempt = self._attempts.get(key)
+            if attempt is None:
+                return 0
+            if attempt.locked_until <= now:
+                if attempt.locked_until:
+                    self._attempts.pop(key, None)
+                return 0
+            return max(1, int(attempt.locked_until - now + 0.999))
+
+    def record_failure(self, key: str) -> int:
+        now = self._now()
+        with self._lock:
+            attempt = self._attempts.get(key)
+            if attempt is not None and attempt.locked_until > now:
+                return max(1, int(attempt.locked_until - now + 0.999))
+            if attempt is None or attempt.locked_until:
+                attempt = LoginAttempt()
+                self._attempts[key] = attempt
+            attempt.failures += 1
+            if attempt.failures < self.max_failures:
+                return 0
+            attempt.locked_until = now + self.lock_seconds
+            return max(1, int(attempt.locked_until - now + 0.999))
+
+    def record_success(self, key: str) -> None:
+        with self._lock:
+            self._attempts.pop(key, None)
 
 
 def utc_now() -> str:
@@ -376,6 +427,16 @@ class TransferHandler(BaseHTTPRequestHandler):
             cookie += "; Secure"
         self.send_header("Set-Cookie", cookie)
 
+    def login_attempt_key(self) -> str:
+        forwarded_for = self.headers.get("X-Forwarded-For", "")
+        forwarded_addrs = [part.strip() for part in forwarded_for.split(",") if part.strip()]
+        if forwarded_addrs:
+            return forwarded_addrs[-1]
+        real_ip = self.headers.get("X-Real-IP", "").strip()
+        if real_ip:
+            return real_ip
+        return self.client_address[0]
+
     def read_json_body(self, max_bytes: int = 1_000_000) -> dict[str, Any] | None:
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
@@ -411,13 +472,32 @@ class TransferHandler(BaseHTTPRequestHandler):
     def send_error_json(self, status: HTTPStatus, message: str) -> None:
         self.send_json({"error": message}, status)
 
+    def send_login_locked(self, retry_after_seconds: int) -> None:
+        body = json_bytes({"error": "Too many login attempts", "retry_after_seconds": retry_after_seconds})
+        self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Retry-After", str(retry_after_seconds))
+        self.end_headers()
+        self.wfile.write(body)
+
     def handle_login(self) -> None:
+        login_key = self.login_attempt_key()
+        retry_after = self.server.login_lockout.retry_after(login_key)  # type: ignore[attr-defined]
+        if retry_after:
+            self.send_login_locked(retry_after)
+            return
         payload = self.read_json_body(max_bytes=10_000)
         if payload is None:
             return
         if not validate_web_login(payload, self.config):
+            retry_after = self.server.login_lockout.record_failure(login_key)  # type: ignore[attr-defined]
+            if retry_after:
+                self.send_login_locked(retry_after)
+                return
             self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid login")
             return
+        self.server.login_lockout.record_success(login_key)  # type: ignore[attr-defined]
         session_token = make_session_value(self.config.token)
         body = json_bytes({"ok": True, "session_token": session_token})
         self.send_response(HTTPStatus.OK)
@@ -627,8 +707,9 @@ class TransferServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, server_address: tuple[str, int], config: AppConfig):
-        super().__init__(server_address, TransferHandler)
         self.config = config
+        self.login_lockout = LoginLockout(config.login_lock_failures, config.login_lock_seconds)
+        super().__init__(server_address, TransferHandler)
 
 
 def parse_args() -> argparse.Namespace:
@@ -642,6 +723,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cors-origins", default=os.environ.get("FTA_CORS_ORIGINS", ""))
     parser.add_argument("--totp-secret", default=os.environ.get("FTA_TOTP_SECRET", ""))
     parser.add_argument("--web-auth-mode", choices=("token", "token_totp", "totp"), default=os.environ.get("FTA_WEB_AUTH_MODE", "token_totp"))
+    parser.add_argument("--login-lock-failures", type=int, default=int(os.environ.get("FTA_LOGIN_LOCK_FAILURES", LOGIN_LOCK_FAILURES)))
+    parser.add_argument("--login-lock-seconds", type=int, default=int(os.environ.get("FTA_LOGIN_LOCK_SECONDS", LOGIN_LOCK_SECONDS)))
     parser.add_argument("--generate-totp-secret", action="store_true", help="Print a Google Authenticator compatible TOTP secret and exit.")
     return parser.parse_args()
 
@@ -662,6 +745,8 @@ def main() -> int:
         cors_origins=tuple(origin.strip().rstrip("/") for origin in args.cors_origins.split(",") if origin.strip()),
         totp_secret=normalize_totp_secret(args.totp_secret),
         web_auth_mode=args.web_auth_mode,
+        login_lock_failures=args.login_lock_failures,
+        login_lock_seconds=args.login_lock_seconds,
     )
     if config.web_auth_mode == "totp" and not config.totp_secret:
         print("FTA_TOTP_SECRET is required when FTA_WEB_AUTH_MODE=totp.", file=sys.stderr)

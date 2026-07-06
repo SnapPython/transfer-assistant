@@ -10,6 +10,9 @@ const state = {
 const config = window.TRANSFER_ASSISTANT_CONFIG || {};
 const API_BASE = String(config.apiBase || "").replace(/\/$/, "");
 const AUTH_MODE = config.authMode || "token_totp";
+const SESSION_STORAGE_KEY = `fta.session.${API_BASE || window.location.origin}`;
+
+state.sessionToken = loadStoredSession();
 
 const elements = {
   status: document.querySelector("#connectionStatus"),
@@ -47,6 +50,26 @@ function authHeaders(extra = {}) {
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
+}
+
+function loadStoredSession() {
+  try {
+    return window.localStorage.getItem(SESSION_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveStoredSession(value) {
+  try {
+    if (value) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, value);
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // The session still works for this tab when storage is unavailable.
+  }
 }
 
 function configureAuthForm() {
@@ -180,9 +203,24 @@ async function refreshItems() {
     state.authenticated = false;
     setStatus(error.status === 401 ? "未登录" : "连接失败");
     state.items = [];
+    if (error.status === 401) {
+      state.sessionToken = "";
+      saveStoredSession("");
+    }
     renderItems();
     if (error.status !== 401) toast(error.message);
   }
+}
+
+function loginErrorMessage(response, payload) {
+  if (response.status === 429 && payload && payload.retry_after_seconds) {
+    const minutes = Math.max(1, Math.ceil(payload.retry_after_seconds / 60));
+    return `登录已锁定，请 ${minutes} 分钟后重试`;
+  }
+  if (payload && payload.error) {
+    return payload.error;
+  }
+  return response.status === 401 ? "登录失败" : `${response.status} ${response.statusText}`;
 }
 
 async function login() {
@@ -206,11 +244,18 @@ async function login() {
       body: JSON.stringify({ token, totp }),
     });
     if (!response.ok) {
-      throw new Error(response.status === 401 ? "登录失败" : `${response.status} ${response.statusText}`);
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch {
+        // Fall back to HTTP status text below.
+      }
+      throw new Error(loginErrorMessage(response, payload));
     }
     const payload = await response.json();
     state.token = "";
     state.sessionToken = payload.session_token || "";
+    saveStoredSession(state.sessionToken);
     state.authenticated = true;
     elements.tokenInput.value = "";
     elements.totpInput.value = "";
@@ -228,6 +273,7 @@ async function logout() {
   });
   state.token = "";
   state.sessionToken = "";
+  saveStoredSession("");
   state.authenticated = false;
   state.items = [];
   renderItems();
@@ -386,6 +432,5 @@ elements.dropZone.addEventListener("drop", (event) => {
   if (files.length) uploadFiles(files);
 });
 
-renderItems();
 configureAuthForm();
 refreshItems();
