@@ -121,6 +121,11 @@ button {
   grid-template-columns: minmax(0, 1fr) 112px 44px;
 }
 
+.auth-row.totp-only,
+.auth-row.token-only {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
 input,
 textarea {
   background: #fff;

@@ -9,6 +9,7 @@ services:
       FTA_MAX_TEXT_CHARS: ${FTA_MAX_TEXT_CHARS:-200000}
       FTA_CORS_ORIGINS: ${FTA_CORS_ORIGINS:-}
       FTA_TOTP_SECRET: ${FTA_TOTP_SECRET:-}
+      FTA_WEB_AUTH_MODE: ${FTA_WEB_AUTH_MODE:-token_totp}
     ports:
       - "${FTA_PORT:-8787}:8787"
     volumes:

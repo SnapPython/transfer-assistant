@@ -1,6 +1,7 @@
 import pytest
+from pathlib import Path
 
-from transfer_assistant.server import hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, verify_session_value, verify_totp
+from transfer_assistant.server import AppConfig, hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, validate_web_login, verify_session_value, verify_totp
 
 
 def test_sanitize_filename_removes_path_parts_and_unsafe_chars():
@@ -38,3 +39,17 @@ def test_totp_matches_rfc_6238_vector():
     assert hotp(secret, 1, digits=8) == "94287082"
     assert verify_totp(secret, "94287082", at_time=59, digits=8, window=0)
     assert not verify_totp(secret, "00000000", at_time=59, digits=8, window=0)
+
+
+def test_totp_only_web_login_does_not_accept_api_token():
+    config = AppConfig(
+        data_dir=Path("."),
+        token="api-token",
+        max_upload_bytes=1,
+        max_text_chars=1,
+        cors_origins=(),
+        totp_secret="GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        web_auth_mode="totp",
+    )
+    assert not validate_web_login({"token": "api-token"}, config)
+    assert validate_web_login({"totp": hotp(config.totp_secret, int(__import__("time").time()) // 30)}, config)

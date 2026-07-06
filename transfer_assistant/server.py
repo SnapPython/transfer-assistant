@@ -39,6 +39,7 @@ class AppConfig:
     max_text_chars: int
     cors_origins: tuple[str, ...]
     totp_secret: str
+    web_auth_mode: str
 
     @property
     def db_path(self) -> Path:
@@ -176,6 +177,20 @@ def verify_totp(secret: str, code: str, at_time: int | None = None, period: int 
         if hmac.compare_digest(hotp(secret, counter + offset, digits), clean_code):
             return True
     return False
+
+
+def validate_web_login(payload: dict[str, Any], config: AppConfig) -> bool:
+    mode = config.web_auth_mode
+    token = payload.get("token", "")
+    code = payload.get("totp", "")
+    token_ok = isinstance(token, str) and hmac.compare_digest(token.strip(), config.token)
+    totp_ok = bool(config.totp_secret) and isinstance(code, str) and verify_totp(config.totp_secret, code)
+
+    if mode == "totp":
+        return totp_ok
+    if mode == "token_totp":
+        return token_ok and (not config.totp_secret or totp_ok)
+    return token_ok
 
 
 def init_storage(config: AppConfig) -> None:
@@ -400,15 +415,9 @@ class TransferHandler(BaseHTTPRequestHandler):
         payload = self.read_json_body(max_bytes=10_000)
         if payload is None:
             return
-        token = payload.get("token", "")
-        if not isinstance(token, str) or not hmac.compare_digest(token.strip(), self.config.token):
-            self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid token")
+        if not validate_web_login(payload, self.config):
+            self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid login")
             return
-        if self.config.totp_secret:
-            code = payload.get("totp", "")
-            if not isinstance(code, str) or not verify_totp(self.config.totp_secret, code):
-                self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid authenticator code")
-                return
         session_token = make_session_value(self.config.token)
         body = json_bytes({"ok": True, "session_token": session_token})
         self.send_response(HTTPStatus.OK)
@@ -632,6 +641,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-text-chars", type=int, default=int(os.environ.get("FTA_MAX_TEXT_CHARS", DEFAULT_MAX_TEXT_CHARS)))
     parser.add_argument("--cors-origins", default=os.environ.get("FTA_CORS_ORIGINS", ""))
     parser.add_argument("--totp-secret", default=os.environ.get("FTA_TOTP_SECRET", ""))
+    parser.add_argument("--web-auth-mode", choices=("token", "token_totp", "totp"), default=os.environ.get("FTA_WEB_AUTH_MODE", "token_totp"))
     parser.add_argument("--generate-totp-secret", action="store_true", help="Print a Google Authenticator compatible TOTP secret and exit.")
     return parser.parse_args()
 
@@ -651,7 +661,11 @@ def main() -> int:
         max_text_chars=args.max_text_chars,
         cors_origins=tuple(origin.strip().rstrip("/") for origin in args.cors_origins.split(",") if origin.strip()),
         totp_secret=normalize_totp_secret(args.totp_secret),
+        web_auth_mode=args.web_auth_mode,
     )
+    if config.web_auth_mode == "totp" and not config.totp_secret:
+        print("FTA_TOTP_SECRET is required when FTA_WEB_AUTH_MODE=totp.", file=sys.stderr)
+        return 2
     init_storage(config)
     server = TransferServer((args.host, args.port), config)
     print(f"Transfer Assistant listening on http://{args.host}:{args.port}")

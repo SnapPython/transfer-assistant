@@ -10,7 +10,7 @@
 
 - API 读写必须带 `Authorization: Bearer <FTA_TOKEN>`。
 - Web 页面通过 `/api/login` 登录，服务端返回 `HttpOnly` session cookie；令牌不再长期保存到 `localStorage`。
-- 设置 `FTA_TOTP_SECRET` 后，网页登录还必须输入 Google Authenticator 等应用生成的 6 位 TOTP 验证码。
+- 设置 `FTA_WEB_AUTH_MODE=totp` 和 `FTA_TOTP_SECRET` 后，网页登录只需要 Google Authenticator 等应用生成的 6 位 TOTP 验证码。
 - CLI/Codex 仍可使用 `Authorization: Bearer <FTA_TOKEN>` 或 `X-FTA-Token: <FTA_TOKEN>`。
 - 上传文件名会清理，文件保存到数据目录，不会按用户传入路径写入。
 - 上传大小默认限制为 512 MB，可用 `FTA_MAX_UPLOAD_MB` 调整。
@@ -51,7 +51,15 @@ python -m transfer_assistant.server --generate-totp-secret
 - Key: `.env` 里的 `FTA_TOTP_SECRET`
 - Type: Time based
 
-启用后，网页登录需要同时输入 `FTA_TOKEN` 和 6 位验证码。CLI/Codex 继续使用 `FTA_TOKEN`。
+网页登录模式：
+
+```bash
+FTA_WEB_AUTH_MODE=token       # 只用登录令牌
+FTA_WEB_AUTH_MODE=token_totp  # 登录令牌 + Google Authenticator
+FTA_WEB_AUTH_MODE=totp        # 只用 Google Authenticator
+```
+
+生产环境当前推荐 `FTA_WEB_AUTH_MODE=totp`。CLI/Codex 继续使用独立的 `FTA_TOKEN`。
 
 如果使用 Linux VPS 上的绑定目录保存数据，第一次启动前建议设置目录权限：
 

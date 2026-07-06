@@ -9,6 +9,7 @@ const state = {
 
 const config = window.TRANSFER_ASSISTANT_CONFIG || {};
 const API_BASE = String(config.apiBase || "").replace(/\/$/, "");
+const AUTH_MODE = config.authMode || "token_totp";
 
 const elements = {
   status: document.querySelector("#connectionStatus"),
@@ -46,6 +47,17 @@ function authHeaders(extra = {}) {
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
+}
+
+function configureAuthForm() {
+  elements.tokenInput.hidden = AUTH_MODE === "totp";
+  elements.totpInput.hidden = AUTH_MODE === "token";
+  elements.tokenInput.required = AUTH_MODE !== "totp";
+  elements.totpInput.required = AUTH_MODE !== "token";
+  elements.tokenInput.placeholder = AUTH_MODE === "token" ? "登录令牌" : "登录令牌";
+  elements.totpInput.placeholder = AUTH_MODE === "totp" ? "Google Authenticator 验证码" : "验证码";
+  document.querySelector(".auth-row").classList.toggle("totp-only", AUTH_MODE === "totp");
+  document.querySelector(".auth-row").classList.toggle("token-only", AUTH_MODE === "token");
 }
 
 async function api(path, options = {}) {
@@ -176,8 +188,12 @@ async function refreshItems() {
 async function login() {
   const token = elements.tokenInput.value.trim();
   const totp = elements.totpInput.value.trim();
-  if (!token) {
+  if (AUTH_MODE !== "totp" && !token) {
     elements.tokenInput.focus();
+    return;
+  }
+  if (AUTH_MODE !== "token" && !totp) {
+    elements.totpInput.focus();
     return;
   }
   try {
@@ -371,4 +387,5 @@ elements.dropZone.addEventListener("drop", (event) => {
 });
 
 renderItems();
+configureAuthForm();
 refreshItems();
