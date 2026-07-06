@@ -1,0 +1,14 @@
+services:
+  transfer-assistant:
+    build: .
+    container_name: transfer-assistant
+    restart: unless-stopped
+    environment:
+      FTA_TOKEN: ${FTA_TOKEN:?set FTA_TOKEN in .env}
+      FTA_MAX_UPLOAD_MB: ${FTA_MAX_UPLOAD_MB:-512}
+      FTA_MAX_TEXT_CHARS: ${FTA_MAX_TEXT_CHARS:-200000}
+      FTA_CORS_ORIGINS: ${FTA_CORS_ORIGINS:-}
+    ports:
+      - "${FTA_PORT:-8787}:8787"
+    volumes:
+      - ./data:/data
