@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import urllib.parse
 import uuid
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ class AppConfig:
     max_upload_bytes: int
     max_text_chars: int
     cors_origins: tuple[str, ...]
+    totp_secret: str
 
     @property
     def db_path(self) -> Path:
@@ -141,6 +143,41 @@ def verify_session_value(value: str, token: str, max_age_seconds: int = SESSION_
     return 0 <= now - timestamp <= max_age_seconds
 
 
+def normalize_totp_secret(secret: str) -> str:
+    return "".join(secret.upper().split()).rstrip("=")
+
+
+def base32_decode_no_padding(value: str) -> bytes:
+    normalized = normalize_totp_secret(value)
+    padding = "=" * ((8 - len(normalized) % 8) % 8)
+    return base64.b32decode(normalized + padding, casefold=True)
+
+
+def generate_totp_secret(length: int = 20) -> str:
+    return base64.b32encode(os.urandom(length)).decode("ascii").rstrip("=")
+
+
+def hotp(secret: str, counter: int, digits: int = 6) -> str:
+    key = base32_decode_no_padding(secret)
+    msg = counter.to_bytes(8, "big")
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return str(value % (10**digits)).zfill(digits)
+
+
+def verify_totp(secret: str, code: str, at_time: int | None = None, period: int = 30, window: int = 1, digits: int = 6) -> bool:
+    clean_code = "".join(code.split())
+    if not clean_code.isdigit() or len(clean_code) != digits:
+        return False
+    now = int(time.time() if at_time is None else at_time)
+    counter = now // period
+    for offset in range(-window, window + 1):
+        if hmac.compare_digest(hotp(secret, counter + offset, digits), clean_code):
+            return True
+    return False
+
+
 def init_storage(config: AppConfig) -> None:
     config.files_dir.mkdir(parents=True, exist_ok=True)
     config.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +234,7 @@ class TransferHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Filename, X-FTA-Token")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Filename, X-FTA-Token, X-FTA-Session")
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -285,6 +322,9 @@ class TransferHandler(BaseHTTPRequestHandler):
             token = self.headers.get("X-FTA-Token", "").strip()
         if hmac.compare_digest(token, self.config.token):
             return True
+        session_token = self.headers.get("X-FTA-Session", "").strip()
+        if session_token and verify_session_value(session_token, self.config.token):
+            return True
         if self.has_valid_session_cookie():
             return True
         self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid or missing token")
@@ -309,8 +349,8 @@ class TransferHandler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "").lower()
         return proto == "https" or host.endswith(".ts.net") or ".ts.net:" in host
 
-    def send_session_cookie(self) -> None:
-        cookie = f"{SESSION_COOKIE}={make_session_value(self.config.token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_MAX_AGE_SECONDS}"
+    def send_session_cookie(self, value: str) -> None:
+        cookie = f"{SESSION_COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={SESSION_MAX_AGE_SECONDS}"
         if self.is_secure_request():
             cookie += "; Secure"
         self.send_header("Set-Cookie", cookie)
@@ -364,11 +404,17 @@ class TransferHandler(BaseHTTPRequestHandler):
         if not isinstance(token, str) or not hmac.compare_digest(token.strip(), self.config.token):
             self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid token")
             return
-        body = json_bytes({"ok": True})
+        if self.config.totp_secret:
+            code = payload.get("totp", "")
+            if not isinstance(code, str) or not verify_totp(self.config.totp_secret, code):
+                self.send_error_json(HTTPStatus.UNAUTHORIZED, "Invalid authenticator code")
+                return
+        session_token = make_session_value(self.config.token)
+        body = json_bytes({"ok": True, "session_token": session_token})
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_session_cookie()
+        self.send_session_cookie(session_token)
         self.end_headers()
         self.wfile.write(body)
 
@@ -585,11 +631,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("FTA_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB)))
     parser.add_argument("--max-text-chars", type=int, default=int(os.environ.get("FTA_MAX_TEXT_CHARS", DEFAULT_MAX_TEXT_CHARS)))
     parser.add_argument("--cors-origins", default=os.environ.get("FTA_CORS_ORIGINS", ""))
+    parser.add_argument("--totp-secret", default=os.environ.get("FTA_TOTP_SECRET", ""))
+    parser.add_argument("--generate-totp-secret", action="store_true", help="Print a Google Authenticator compatible TOTP secret and exit.")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.generate_totp_secret:
+        print(generate_totp_secret())
+        return 0
     if not args.token:
         print("FTA_TOKEN is required. Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\"", file=sys.stderr)
         return 2
@@ -599,6 +650,7 @@ def main() -> int:
         max_upload_bytes=args.max_upload_mb * 1024 * 1024,
         max_text_chars=args.max_text_chars,
         cors_origins=tuple(origin.strip().rstrip("/") for origin in args.cors_origins.split(",") if origin.strip()),
+        totp_secret=normalize_totp_secret(args.totp_secret),
     )
     init_storage(config)
     server = TransferServer((args.host, args.port), config)

@@ -118,7 +118,7 @@ button {
 .auth-row {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 112px 44px;
 }
 
 input,
@@ -419,6 +419,10 @@ svg {
 
   .topbar {
     margin-bottom: 14px;
+  }
+
+  .auth-row {
+    grid-template-columns: minmax(0, 1fr) 96px 44px;
   }
 
   .workspace {

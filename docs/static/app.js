@@ -1,5 +1,6 @@
 const state = {
   token: "",
+  sessionToken: "",
   authenticated: false,
   items: [],
   activeTab: "file",
@@ -12,6 +13,7 @@ const API_BASE = String(config.apiBase || "").replace(/\/$/, "");
 const elements = {
   status: document.querySelector("#connectionStatus"),
   tokenInput: document.querySelector("#tokenInput"),
+  totpInput: document.querySelector("#totpInput"),
   saveToken: document.querySelector("#saveTokenButton"),
   logout: document.querySelector("#logoutButton"),
   refresh: document.querySelector("#refreshButton"),
@@ -35,6 +37,9 @@ function authHeaders(extra = {}) {
   if (state.token) {
     headers.Authorization = `Bearer ${state.token}`;
     headers["X-FTA-Token"] = state.token;
+  }
+  if (state.sessionToken) {
+    headers["X-FTA-Session"] = state.sessionToken;
   }
   return headers;
 }
@@ -170,6 +175,7 @@ async function refreshItems() {
 
 async function login() {
   const token = elements.tokenInput.value.trim();
+  const totp = elements.totpInput.value.trim();
   if (!token) {
     elements.tokenInput.focus();
     return;
@@ -181,14 +187,17 @@ async function login() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, totp }),
     });
     if (!response.ok) {
       throw new Error(response.status === 401 ? "登录失败" : `${response.status} ${response.statusText}`);
     }
-    state.token = token;
+    const payload = await response.json();
+    state.token = "";
+    state.sessionToken = payload.session_token || "";
     state.authenticated = true;
     elements.tokenInput.value = "";
+    elements.totpInput.value = "";
     toast("已登录");
     refreshItems();
   } catch (error) {
@@ -202,6 +211,7 @@ async function logout() {
     credentials: "same-origin",
   });
   state.token = "";
+  state.sessionToken = "";
   state.authenticated = false;
   state.items = [];
   renderItems();

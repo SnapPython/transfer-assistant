@@ -1,6 +1,6 @@
 import pytest
 
-from transfer_assistant.server import make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, verify_session_value
+from transfer_assistant.server import hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, verify_session_value, verify_totp
 
 
 def test_sanitize_filename_removes_path_parts_and_unsafe_chars():
@@ -31,3 +31,10 @@ def test_session_value_is_signed_and_token_scoped():
     assert verify_session_value(value, "secret-token")
     assert not verify_session_value(value, "other-token")
     assert not verify_session_value(value + "tampered", "secret-token")
+
+
+def test_totp_matches_rfc_6238_vector():
+    secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+    assert hotp(secret, 1, digits=8) == "94287082"
+    assert verify_totp(secret, "94287082", at_time=59, digits=8, window=0)
+    assert not verify_totp(secret, "00000000", at_time=59, digits=8, window=0)

@@ -10,6 +10,7 @@
 
 - API 读写必须带 `Authorization: Bearer <FTA_TOKEN>`。
 - Web 页面通过 `/api/login` 登录，服务端返回 `HttpOnly` session cookie；令牌不再长期保存到 `localStorage`。
+- 设置 `FTA_TOTP_SECRET` 后，网页登录还必须输入 Google Authenticator 等应用生成的 6 位 TOTP 验证码。
 - CLI/Codex 仍可使用 `Authorization: Bearer <FTA_TOKEN>` 或 `X-FTA-Token: <FTA_TOKEN>`。
 - 上传文件名会清理，文件保存到数据目录，不会按用户传入路径写入。
 - 上传大小默认限制为 512 MB，可用 `FTA_MAX_UPLOAD_MB` 调整。
@@ -36,6 +37,21 @@ PY
 # 把输出写入 .env 的 FTA_TOKEN
 docker compose up -d --build
 ```
+
+启用 Google Authenticator：
+
+```bash
+python -m transfer_assistant.server --generate-totp-secret
+# 把输出写入 .env 的 FTA_TOTP_SECRET
+```
+
+在 Google Authenticator 中选择手动输入 setup key：
+
+- Account name: `Transfer Assistant`
+- Key: `.env` 里的 `FTA_TOTP_SECRET`
+- Type: Time based
+
+启用后，网页登录需要同时输入 `FTA_TOKEN` 和 6 位验证码。CLI/Codex 继续使用 `FTA_TOKEN`。
 
 如果使用 Linux VPS 上的绑定目录保存数据，第一次启动前建议设置目录权限：
 
