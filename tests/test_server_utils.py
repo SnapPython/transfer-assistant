@@ -1,7 +1,12 @@
+import json
+import threading
+import urllib.error
+import urllib.request
+
 import pytest
 from pathlib import Path
 
-from transfer_assistant.server import AppConfig, LoginLockout, hotp, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, validate_web_login, verify_session_value, verify_totp
+from transfer_assistant.server import AppConfig, LoginLockout, TransferServer, hotp, init_storage, make_session_value, make_title_from_text, parse_bounded_int, sanitize_filename, validate_proxy_auth, validate_web_login, verify_session_value, verify_totp
 
 
 def test_sanitize_filename_removes_path_parts_and_unsafe_chars():
@@ -63,6 +68,88 @@ def test_login_lockout_locks_after_three_consecutive_failures():
     assert limiter.record_failure("203.0.113.10") == 0
     assert limiter.record_failure("203.0.113.10") == 60
     assert limiter.retry_after("203.0.113.10") == 60
+
+
+def make_config(tmp_path: Path, proxy_auth_secret: str = "") -> AppConfig:
+    return AppConfig(
+        data_dir=tmp_path,
+        token="api-token",
+        max_upload_bytes=1024,
+        max_text_chars=1024,
+        cors_origins=(),
+        totp_secret="",
+        web_auth_mode="token",
+        proxy_auth_secret=proxy_auth_secret,
+    )
+
+
+def test_validate_proxy_auth_accepts_matching_secret_with_remote_user(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="proxy-secret")
+    assert validate_proxy_auth("alice", "proxy-secret", config)
+
+
+def test_validate_proxy_auth_rejects_remote_user_without_secret(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="proxy-secret")
+    assert not validate_proxy_auth("alice", "", config)
+
+
+def test_validate_proxy_auth_rejects_wrong_secret(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="proxy-secret")
+    assert not validate_proxy_auth("alice", "wrong-secret", config)
+
+
+def test_validate_proxy_auth_disabled_when_secret_unset(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="")
+    assert not validate_proxy_auth("alice", "", config)
+    assert not validate_proxy_auth("alice", "anything", config)
+
+
+def test_validate_proxy_auth_requires_remote_user(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="proxy-secret")
+    assert not validate_proxy_auth("", "proxy-secret", config)
+    assert not validate_proxy_auth("   ", "proxy-secret", config)
+
+
+@pytest.fixture
+def running_server(tmp_path):
+    config = make_config(tmp_path, proxy_auth_secret="proxy-secret")
+    init_storage(config)
+    server = TransferServer(("127.0.0.1", 0), config)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def api_items_status(base_url: str, headers: dict[str, str]) -> int:
+    request = urllib.request.Request(f"{base_url}/api/items?limit=1", headers=headers)
+    try:
+        with urllib.request.urlopen(request) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def test_http_fta_token_still_authenticates(running_server):
+    assert api_items_status(running_server, {"Authorization": "Bearer api-token"}) == 200
+
+
+def test_http_proxy_headers_authenticate(running_server):
+    headers = {"Remote-User": "alice", "X-FTA-Proxy-Secret": "proxy-secret"}
+    assert api_items_status(running_server, headers) == 200
+
+
+def test_http_remote_user_alone_is_rejected(running_server):
+    assert api_items_status(running_server, {"Remote-User": "alice"}) == 401
+
+
+def test_http_wrong_proxy_secret_is_rejected(running_server):
+    headers = {"Remote-User": "alice", "X-FTA-Proxy-Secret": "wrong"}
+    assert api_items_status(running_server, headers) == 401
 
 
 def test_login_lockout_success_resets_failures():
