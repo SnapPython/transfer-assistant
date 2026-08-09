@@ -45,6 +45,7 @@ class AppConfig:
     web_auth_mode: str
     login_lock_failures: int = LOGIN_LOCK_FAILURES
     login_lock_seconds: int = LOGIN_LOCK_SECONDS
+    proxy_auth_secret: str = ""
 
     @property
     def db_path(self) -> Path:
@@ -230,6 +231,16 @@ def verify_totp(secret: str, code: str, at_time: int | None = None, period: int 
     return False
 
 
+def validate_proxy_auth(remote_user: str, proxy_secret: str, config: AppConfig) -> bool:
+    """Trusted reverse-proxy SSO: only Caddy knows FTA_PROXY_AUTH_SECRET, so a
+    matching X-FTA-Proxy-Secret proves Remote-User was set by Authelia, not a client."""
+    if not config.proxy_auth_secret:
+        return False
+    if not remote_user.strip():
+        return False
+    return hmac.compare_digest(proxy_secret, config.proxy_auth_secret)
+
+
 def validate_web_login(payload: dict[str, Any], config: AppConfig) -> bool:
     mode = config.web_auth_mode
     token = payload.get("token", "")
@@ -387,6 +398,10 @@ class TransferHandler(BaseHTTPRequestHandler):
         if not token:
             token = self.headers.get("X-FTA-Token", "").strip()
         if hmac.compare_digest(token, self.config.token):
+            return True
+        proxy_secret = self.headers.get("X-FTA-Proxy-Secret", "")
+        remote_user = self.headers.get("Remote-User", "")
+        if validate_proxy_auth(remote_user, proxy_secret, self.config):
             return True
         session_token = self.headers.get("X-FTA-Session", "").strip()
         if session_token and verify_session_value(session_token, self.config.token):
@@ -723,6 +738,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cors-origins", default=os.environ.get("FTA_CORS_ORIGINS", ""))
     parser.add_argument("--totp-secret", default=os.environ.get("FTA_TOTP_SECRET", ""))
     parser.add_argument("--web-auth-mode", choices=("token", "token_totp", "totp"), default=os.environ.get("FTA_WEB_AUTH_MODE", "token_totp"))
+    parser.add_argument("--proxy-auth-secret", default=os.environ.get("FTA_PROXY_AUTH_SECRET", ""))
     parser.add_argument("--login-lock-failures", type=int, default=int(os.environ.get("FTA_LOGIN_LOCK_FAILURES", LOGIN_LOCK_FAILURES)))
     parser.add_argument("--login-lock-seconds", type=int, default=int(os.environ.get("FTA_LOGIN_LOCK_SECONDS", LOGIN_LOCK_SECONDS)))
     parser.add_argument("--generate-totp-secret", action="store_true", help="Print a Google Authenticator compatible TOTP secret and exit.")
@@ -747,6 +763,7 @@ def main() -> int:
         web_auth_mode=args.web_auth_mode,
         login_lock_failures=args.login_lock_failures,
         login_lock_seconds=args.login_lock_seconds,
+        proxy_auth_secret=args.proxy_auth_secret.strip(),
     )
     if config.web_auth_mode == "totp" and not config.totp_secret:
         print("FTA_TOTP_SECRET is required when FTA_WEB_AUTH_MODE=totp.", file=sys.stderr)
