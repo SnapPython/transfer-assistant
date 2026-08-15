@@ -27,10 +27,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker compose config --format json > /tmp/compose.json
-          python3 - <<'PY'
+          python - <<'CHECK'
           import json
 
-          config = json.load(open("/tmp/compose.json"))
+          with open("/tmp/compose.json", encoding="utf-8") as handle:
+              config = json.load(handle)
           ports = config["services"]["transfer-assistant"]["ports"]
           assert ports, "no published ports found"
           for port in ports:
@@ -40,7 +41,7 @@ jobs:
                   "reverse proxy, not on a public interface"
               )
           print("published ports:", ports)
-          PY
+          CHECK
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -49,3 +50,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
+        env:
+          # Required since gitleaks-action v2.3: without it every pull request
+          # scan fails before it starts.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
