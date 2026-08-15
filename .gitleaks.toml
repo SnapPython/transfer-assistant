@@ -1,0 +1,8 @@
+title = "transfer-assistant Gitleaks configuration"
+
+[[allowlists]]
+description = "RFC 6238 Appendix B shared test vector used by the TOTP tests"
+regexTarget = "secret"
+regexes = [
+  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+]

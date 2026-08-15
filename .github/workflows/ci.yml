@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --quiet pytest
+      - name: Compile
+        run: python -m compileall -q transfer_assistant client
+      - name: Test
+        run: python -m pytest tests -q
+      - name: Require a loopback published port
+        env:
+          FTA_TOKEN: ci-placeholder-token
+        run: |
+          set -Eeuo pipefail
+          docker compose config --format json > /tmp/compose.json
+          python3 - <<'PY'
+          import json
+
+          config = json.load(open("/tmp/compose.json"))
+          ports = config["services"]["transfer-assistant"]["ports"]
+          assert ports, "no published ports found"
+          for port in ports:
+              host_ip = port.get("host_ip")
+              assert host_ip == "127.0.0.1", (
+                  f"published on {host_ip!r}; the application must sit behind a "
+                  "reverse proxy, not on a public interface"
+              )
+          print("published ports:", ports)
+          PY
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

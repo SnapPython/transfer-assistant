@@ -14,6 +14,11 @@ services:
       FTA_LOGIN_LOCK_SECONDS: ${FTA_LOGIN_LOCK_SECONDS:-900}
       FTA_PROXY_AUTH_SECRET: ${FTA_PROXY_AUTH_SECRET:-}
     ports:
-      - "${FTA_PORT:-8787}:8787"
+      # Loopback only. A reverse proxy (Caddy, or `tailscale serve`) is the
+      # intended entry point; publishing on every interface exposes the
+      # application's own login surface directly over plain HTTP, bypassing
+      # both TLS and any proxy-level authentication in front of it.
+      # Set FTA_BIND=0.0.0.0 only for a deliberately public host.
+      - "${FTA_BIND:-127.0.0.1}:${FTA_PORT:-8787}:8787"
     volumes:
       - ./data:/data
