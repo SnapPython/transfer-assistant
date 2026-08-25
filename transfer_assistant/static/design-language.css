@@ -1,0 +1,93 @@
+/* SnapPython external UI contract: Transfer Assistant adapter. */
+:root {
+  color-scheme: light;
+  --ui-font-sans: Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 24px;
+  --ui-space-6: 32px;
+  --ui-space-7: 48px;
+  --ui-radius-control: 6px;
+  --ui-radius-card: 8px;
+  --ui-radius-pill: 999px;
+  --ui-canvas: #f3f5f6;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #eef1f2;
+  --ui-surface-raised: #f9fafb;
+  --ui-ink: #202327;
+  --ui-ink-muted: #687078;
+  --ui-line: #dce1e4;
+  --ui-line-strong: #c8ced2;
+  --ui-accent: #2d67b2;
+  --ui-accent-strong: #24538f;
+  --ui-accent-soft: #e2ebf7;
+  --ui-success: #178060;
+  --ui-info: #2d67b2;
+  --ui-warning: #9a6a13;
+  --ui-danger: #b7463b;
+  --ui-focus: #2767c7;
+  --ui-shadow-card: 0 8px 24px rgba(24, 28, 33, 0.06);
+
+  /* Existing Transfer selectors consume these aliases. */
+  --bg: var(--ui-canvas);
+  --surface: var(--ui-surface);
+  --surface-strong: var(--ui-surface-muted);
+  --ink: var(--ui-ink);
+  --muted: var(--ui-ink-muted);
+  --line: var(--ui-line);
+  --accent: var(--ui-accent);
+  --accent-strong: var(--ui-accent-strong);
+  --blue: var(--ui-info);
+  --danger: var(--ui-danger);
+  --shadow: var(--ui-shadow-card);
+}
+
+html {
+  background: var(--ui-canvas);
+  font-family: var(--ui-font-sans);
+}
+
+body {
+  min-width: 320px;
+  font-family: var(--ui-font-sans);
+  line-height: 1.5;
+}
+
+.brand-mark {
+  background: var(--ui-accent);
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--ui-focus);
+  box-shadow: 0 0 0 3px rgba(39, 103, 199, 0.16);
+}
+
+.drop-zone.dragging {
+  background: var(--ui-accent-soft);
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+}
+
+:where(button, input, textarea):focus-visible {
+  outline: 3px solid rgba(39, 103, 199, 0.36);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #fff;
+  background: var(--ui-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

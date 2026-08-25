@@ -371,6 +371,8 @@ class TransferHandler(BaseHTTPRequestHandler):
             file_path = STATIC_DIR / "index.html"
         elif path == "/static/app.css":
             file_path = STATIC_DIR / "app.css"
+        elif path == "/static/design-language.css":
+            file_path = STATIC_DIR / "design-language.css"
         elif path == "/static/app.js":
             file_path = STATIC_DIR / "app.js"
         else:
