@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en-US">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>文件传输助手</title>
+    <title>Transfer Assistant</title>
     <link rel="stylesheet" href="static/app.css">
     <link rel="stylesheet" href="static/design-language.css">
   </head>
@@ -13,59 +13,59 @@
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">F</div>
           <div class="brand-copy">
-            <h1>文件传输助手</h1>
-            <span id="connectionStatus">未连接</span>
+            <h1>Transfer Assistant</h1>
+            <span id="connectionStatus">Disconnected</span>
           </div>
         </div>
         <div class="top-actions">
-          <button id="logoutButton" class="icon-button" type="button" title="退出" aria-label="退出">
+          <button id="logoutButton" class="icon-button" type="button" title="Sign out" aria-label="Sign out">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path><path d="M21 3v18h-8"></path></svg>
           </button>
-          <button id="refreshButton" class="icon-button" type="button" title="刷新" aria-label="刷新">
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh" aria-label="Refresh">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"></path><path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.68"></path></svg>
           </button>
         </div>
       </header>
 
       <main class="workspace">
-        <section class="composer" aria-label="发送">
+        <section class="composer" aria-label="Send">
           <div class="auth-row">
-            <input id="tokenInput" type="password" autocomplete="current-password" placeholder="登录令牌" aria-label="登录令牌">
-            <input id="totpInput" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码" aria-label="Authenticator 验证码" maxlength="6">
-            <button id="saveTokenButton" class="icon-button filled" type="button" title="登录" aria-label="登录">
+            <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Access token" aria-label="Access token">
+            <input id="totpInput" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Verification code" aria-label="Authenticator code" maxlength="6">
+            <button id="saveTokenButton" class="icon-button filled" type="button" title="Sign in" aria-label="Sign in">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path></svg>
             </button>
           </div>
 
-          <div class="tabs" role="tablist" aria-label="发送类型">
-            <button id="fileTab" class="tab active" type="button" role="tab" aria-selected="true">文件</button>
-            <button id="textTab" class="tab" type="button" role="tab" aria-selected="false">文本</button>
+          <div class="tabs" role="tablist" aria-label="Item type">
+            <button id="fileTab" class="tab active" type="button" role="tab" aria-selected="true">File</button>
+            <button id="textTab" class="tab" type="button" role="tab" aria-selected="false">Text</button>
           </div>
 
           <div id="filePanel" class="panel active" role="tabpanel" aria-labelledby="fileTab">
             <input id="fileInput" class="file-input" type="file" multiple>
             <label class="drop-zone" for="fileInput" id="dropZone">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 8 5-5 5 5"></path><path d="M5 21h14"></path></svg>
-              <span id="fileLabel">选择文件</span>
+              <span id="fileLabel">Choose files</span>
             </label>
             <div id="uploadQueue" class="queue" aria-live="polite"></div>
           </div>
 
           <div id="textPanel" class="panel" role="tabpanel" aria-labelledby="textTab">
-            <input id="textTitleInput" type="text" placeholder="标题" aria-label="标题" maxlength="120">
-            <textarea id="textInput" rows="9" placeholder="文本" aria-label="文本"></textarea>
+            <input id="textTitleInput" type="text" placeholder="Title" aria-label="Title" maxlength="120">
+            <textarea id="textInput" rows="9" placeholder="Text" aria-label="Text"></textarea>
             <button id="sendTextButton" class="primary-button" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>
-              <span>发送</span>
+              <span>Send</span>
             </button>
           </div>
         </section>
 
-        <section class="feed" aria-label="记录">
+        <section class="feed" aria-label="History">
           <div class="feed-toolbar">
             <div class="search-box">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
-              <input id="searchInput" type="search" placeholder="搜索" aria-label="搜索">
+              <input id="searchInput" type="search" placeholder="Search" aria-label="Search">
             </div>
           </div>
           <div id="items" class="items" aria-live="polite"></div>
@@ -84,13 +84,13 @@
           </div>
         </div>
         <div class="item-actions">
-          <button class="icon-button download-button" type="button" title="下载" aria-label="下载">
+          <button class="icon-button download-button" type="button" title="Download" aria-label="Download">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
           </button>
-          <button class="icon-button copy-button" type="button" title="复制" aria-label="复制">
+          <button class="icon-button copy-button" type="button" title="Copy" aria-label="Copy">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><rect x="2" y="2" width="13" height="13" rx="2"></rect></svg>
           </button>
-          <button class="icon-button delete-button danger" type="button" title="删除" aria-label="删除">
+          <button class="icon-button delete-button danger" type="button" title="Delete" aria-label="Delete">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
           </button>
         </div>

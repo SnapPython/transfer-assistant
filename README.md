@@ -1,82 +1,86 @@
-# 文件传输助手
+# Transfer Assistant
 
-一个可自托管的文件和短文本传输助手，适合放在 VPS 上。手机、电脑、平板用浏览器访问；Codex、终端和脚本通过同一套 HTTP API 或 `client/fta.py` 操作。
+A self-hosted file and short-text transfer service for a VPS. Use a browser on
+phones, computers and tablets, or the same HTTP API through `client/fta.py`.
+The interface, status messages and date formatting use English. Uploaded files,
+filenames and user text retain their original content and language.
 
-## 为什么建议放 VPS
+## Why run it on a VPS
 
-放 VPS 更合适。你的电脑关机后，手机和平板仍然可以上传或取回文件；Codex 也能通过公网 HTTPS 地址直接访问这个服务。电脑本机只适合作为临时局域网传输点。
+A VPS keeps uploads and downloads available when your computer is off. A local
+computer is useful as a temporary LAN transfer endpoint.
 
-## 安全设计
+## Security
 
-- API 读写必须带 `Authorization: Bearer <FTA_TOKEN>`。
-- Web 页面通过 `/api/login` 登录，服务端返回 30 天有效的网页登录 session；Pages 前端只保存这个限时 session，不保存 `FTA_TOKEN`。
-- 设置 `FTA_WEB_AUTH_MODE=totp` 和 `FTA_TOTP_SECRET` 后，网页登录只需要 Google Authenticator 等应用生成的 6 位 TOTP 验证码。
-- Web 登录默认连续错误 3 次后锁定 15 分钟，可用 `FTA_LOGIN_LOCK_FAILURES` 和 `FTA_LOGIN_LOCK_SECONDS` 调整。
-- CLI/Codex 仍可使用 `Authorization: Bearer <FTA_TOKEN>` 或 `X-FTA-Token: <FTA_TOKEN>`。
-- 上传文件名会清理，文件保存到数据目录，不会按用户传入路径写入。
-- 上传大小默认限制为 512 MB，可用 `FTA_MAX_UPLOAD_MB` 调整。
-- 删除记录时会删除 SQLite 记录和磁盘文件。
-- 公网部署时必须放在 HTTPS 反向代理后面。
+- API reads and writes require `Authorization: Bearer <FTA_TOKEN>`.
+- `/api/login` issues a web session valid for 30 days. The Pages client stores
+  that limited session, not `FTA_TOKEN`.
+- With `FTA_WEB_AUTH_MODE=totp` and `FTA_TOTP_SECRET`, web sign-in accepts a
+  six-digit code from Google Authenticator or another TOTP app.
+- Three consecutive failed sign-ins lock access for 15 minutes by default;
+  configure `FTA_LOGIN_LOCK_FAILURES` and `FTA_LOGIN_LOCK_SECONDS` to change this.
+- CLI clients can use a Bearer token or `X-FTA-Token: <FTA_TOKEN>`.
+- Upload names are sanitized; client paths cannot choose filesystem locations.
+- The default upload limit is 512 MB, configurable with `FTA_MAX_UPLOAD_MB`.
+- Deleting an item removes its SQLite record and file.
+- Public deployments require an HTTPS reverse proxy.
 
-## 本地运行
+## Run locally
 
 ```powershell
 $env:FTA_TOKEN = "change-this-to-a-long-random-token"
 python -m transfer_assistant.server --host 127.0.0.1 --port 8787 --data-dir .\.data
 ```
 
-打开 `http://127.0.0.1:8787`，使用同一个令牌登录。
+Open `http://127.0.0.1:8787` and sign in with that token.
 
-## VPS Docker 部署
+## VPS Docker deployment
+
+For this stack, release application changes through `vps-stack` and its guarded
+deployment workflow. The following commands describe standalone setup:
 
 ```bash
 cp .env.example .env
-python3 - <<'PY'
+python3 - <<'PYTHON'
 import secrets
 print(secrets.token_urlsafe(32))
-PY
-# 把输出写入 .env 的 FTA_TOKEN
+PYTHON
+# Store the generated value as FTA_TOKEN in .env; never commit it.
 docker compose up -d --build
 ```
 
-启用 Google Authenticator：
+Generate an authenticator secret:
 
 ```bash
 python -m transfer_assistant.server --generate-totp-secret
-# 把输出写入 .env 的 FTA_TOTP_SECRET
+# Store the output as FTA_TOTP_SECRET in .env.
 ```
 
-在 Google Authenticator 中选择手动输入 setup key：
-
-- Account name: `Transfer Assistant`
-- Key: `.env` 里的 `FTA_TOTP_SECRET`
-- Type: Time based
-
-网页登录模式：
+In the authenticator app, add a time-based account named `Transfer Assistant`
+using that setup key. Choose a web authentication mode:
 
 ```bash
-FTA_WEB_AUTH_MODE=token       # 只用登录令牌
-FTA_WEB_AUTH_MODE=token_totp  # 登录令牌 + Google Authenticator
-FTA_WEB_AUTH_MODE=totp        # 只用 Google Authenticator
+FTA_WEB_AUTH_MODE=token       # Access token only
+FTA_WEB_AUTH_MODE=token_totp  # Token and authenticator code
+FTA_WEB_AUTH_MODE=totp        # Authenticator code only
 ```
 
-生产环境当前推荐 `FTA_WEB_AUTH_MODE=totp`。CLI/Codex 继续使用独立的 `FTA_TOKEN`。
-
-网页登录失败锁定：
+The production configuration uses TOTP for web access. CLI clients continue
+using the separate `FTA_TOKEN`. The default lockout configuration is:
 
 ```bash
 FTA_LOGIN_LOCK_FAILURES=3
 FTA_LOGIN_LOCK_SECONDS=900
 ```
 
-如果使用 Linux VPS 上的绑定目录保存数据，第一次启动前建议设置目录权限：
+Prepare a Linux bind-mounted data directory before the first start:
 
 ```bash
 mkdir -p data
 chown -R 1000:1000 data
 ```
 
-推荐用 Caddy 提供 HTTPS：
+An example Caddy HTTPS entry:
 
 ```caddyfile
 files.example.com {
@@ -85,51 +89,54 @@ files.example.com {
 }
 ```
 
-然后访问 `https://files.example.com`。
-
-如果 VPS 已经接入 Tailscale，也可以不暴露公网端口：
+Then open `https://files.example.com`. A standalone deployment already using
+Tailscale can expose a tailnet-only endpoint:
 
 ```bash
 docker compose up -d --build
 tailscale serve --bg --yes 8787
 ```
 
-然后在同一个 tailnet 内访问 `https://<machine>.<tailnet>.ts.net/`。如果客户端没有启用 Tailscale DNS，可以再加一个 tailnet-only HTTP 入口：
+Open `https://<machine>.<tailnet>.ts.net/` from the tailnet. Where Tailscale DNS
+is unavailable, a tailnet-only HTTP endpoint can be added:
 
 ```bash
 tailscale serve --bg --yes --http=8787 8787
 ```
 
-如果要直接放到公网，可以用 Tailscale Funnel 提供公网 HTTPS：
+A standalone public endpoint can instead use Funnel:
 
 ```bash
 tailscale funnel --bg --yes 8787
 ```
 
-Funnel 开启后，公网访问地址通常是 `https://<machine>.<tailnet>.ts.net/`。任何人能打开页面，但必须通过配置的网页登录方式后才能读写文件和文本。
+The public page remains protected by the configured web authentication method
+for all file and text reads/writes. Do not change the managed stack's exposure
+or authentication topology through these standalone examples.
 
-## GitHub Pages 前端
+## GitHub Pages client
 
-GitHub Pages 只能托管静态文件，不能运行上传 API 或保存文件。正式 Pages 方案是：
+Pages hosts static files, not the upload API or storage:
 
-- `docs/`：GitHub Pages 静态前端。
-- VPS：继续运行 API、认证和文件存储。
-- `docs/static/config.js`：配置 Pages 前端连接的 VPS API 地址。
+- `docs/` contains the Pages frontend.
+- The VPS runs the API, authentication and file storage.
+- `docs/static/config.js` sets the API address for the Pages client.
 
-Pages 前端使用网页登录后签发的限时 session 调用 API，不把 `FTA_TOKEN` 写入 `localStorage`。VPS 后端需要允许 Pages 来源：
+The client uses the limited web session and never writes `FTA_TOKEN` into
+`localStorage`. The API must allow the Pages origin:
 
 ```bash
 FTA_CORS_ORIGINS=https://snappython.github.io
 ```
 
-## Codex / 终端使用
+## Terminal use
 
-PowerShell：
+PowerShell:
 
 ```powershell
 $env:FTA_URL = "https://files.example.com"
 $env:FTA_TOKEN = "your-long-token"
-python .\client\fta.py text "一段要同步的文本"
+python .\client\fta.py text "A note to sync"
 python .\client\fta.py upload .\report.pdf
 python .\client\fta.py list
 python .\client\fta.py cat <item-id>
@@ -137,7 +144,7 @@ python .\client\fta.py download <item-id> --output .
 python .\client\fta.py delete <item-id> --yes
 ```
 
-Bash：
+Bash:
 
 ```bash
 export FTA_URL=https://files.example.com
@@ -161,6 +168,7 @@ curl -H "Authorization: Bearer $FTA_TOKEN" \
   "$FTA_URL/api/files?name=report.pdf"
 ```
 
-## 备份
+## Backup
 
-备份 `data/` 目录即可，里面包含 SQLite 元数据和上传文件。
+Back up the `data/` directory, which holds SQLite metadata and uploaded files.
+Use an application-consistent snapshot when the service is accepting writes.

@@ -77,8 +77,8 @@ function configureAuthForm() {
   elements.totpInput.hidden = AUTH_MODE === "token";
   elements.tokenInput.required = AUTH_MODE !== "totp";
   elements.totpInput.required = AUTH_MODE !== "token";
-  elements.tokenInput.placeholder = AUTH_MODE === "token" ? "登录令牌" : "登录令牌";
-  elements.totpInput.placeholder = AUTH_MODE === "totp" ? "Google Authenticator 验证码" : "验证码";
+  elements.tokenInput.placeholder = AUTH_MODE === "token" ? "Access token" : "Access token";
+  elements.totpInput.placeholder = AUTH_MODE === "totp" ? "Google Authenticator code" : "Verification code";
   document.querySelector(".auth-row").classList.toggle("totp-only", AUTH_MODE === "totp");
   document.querySelector(".auth-row").classList.toggle("token-only", AUTH_MODE === "token");
 }
@@ -132,7 +132,7 @@ function bytes(value) {
 function dateLabel(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -152,15 +152,15 @@ function renderItems() {
   if (!state.authenticated) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "登录后同步";
+    empty.textContent = "Sign in to sync";
     elements.items.appendChild(empty);
-    setStatus("未登录");
+    setStatus("Signed out");
     return;
   }
   if (state.items.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "暂无记录";
+    empty.textContent = "No items yet";
     elements.items.appendChild(empty);
     return;
   }
@@ -177,7 +177,7 @@ function renderItems() {
     icon.textContent = fileInitial(item);
     icon.classList.toggle("text", item.kind === "text");
     title.textContent = item.title || item.original_name || item.id;
-    meta.textContent = `${item.kind === "text" ? "文本" : "文件"} · ${bytes(item.size_bytes)} · ${dateLabel(item.created_at)}`;
+    meta.textContent = `${item.kind === "text" ? "Text" : "File"} · ${bytes(item.size_bytes)} · ${dateLabel(item.created_at)}`;
     preview.textContent = item.kind === "text" ? item.text_preview || "" : item.sha256 ? `SHA-256 ${item.sha256.slice(0, 16)}` : "";
     copy.classList.toggle("hidden", item.kind !== "text");
 
@@ -197,11 +197,11 @@ async function refreshItems() {
     const payload = await api(`/api/items?${params.toString()}`);
     state.items = payload.items || [];
     state.authenticated = true;
-    setStatus("已登录");
+    setStatus("Signed in");
     renderItems();
   } catch (error) {
     state.authenticated = false;
-    setStatus(error.status === 401 ? "未登录" : "连接失败");
+    setStatus(error.status === 401 ? "Signed out" : "Connection failed");
     state.items = [];
     if (error.status === 401) {
       state.sessionToken = "";
@@ -215,12 +215,12 @@ async function refreshItems() {
 function loginErrorMessage(response, payload) {
   if (response.status === 429 && payload && payload.retry_after_seconds) {
     const minutes = Math.max(1, Math.ceil(payload.retry_after_seconds / 60));
-    return `登录已锁定，请 ${minutes} 分钟后重试`;
+    return `Sign-in locked. Try again in ${minutes} minutes`;
   }
   if (payload && payload.error) {
     return payload.error;
   }
-  return response.status === 401 ? "登录失败" : `${response.status} ${response.statusText}`;
+  return response.status === 401 ? "Sign-in failed" : `${response.status} ${response.statusText}`;
 }
 
 async function login() {
@@ -259,7 +259,7 @@ async function login() {
     state.authenticated = true;
     elements.tokenInput.value = "";
     elements.totpInput.value = "";
-    toast("已登录");
+    toast("Signed in");
     refreshItems();
   } catch (error) {
     toast(error.message);
@@ -304,11 +304,11 @@ function queueRow(file, status) {
 
 async function uploadFiles(files) {
   if (!state.authenticated) {
-    toast("需要登录");
+    toast("Sign in first");
     return;
   }
   for (const file of files) {
-    const label = queueRow(file, "上传中");
+    const label = queueRow(file, "Uploading");
     try {
       const url = `/api/files?name=${encodeURIComponent(file.name)}`;
       await api(url, {
@@ -318,9 +318,9 @@ async function uploadFiles(files) {
         },
         body: file,
       });
-      label.textContent = "完成";
+      label.textContent = "Done";
     } catch (error) {
-      label.textContent = "失败";
+      label.textContent = "Failed";
       toast(error.message);
     }
   }
@@ -330,7 +330,7 @@ async function uploadFiles(files) {
 
 async function sendText() {
   if (!state.authenticated) {
-    toast("需要登录");
+    toast("Sign in first");
     return;
   }
   const text = elements.textInput.value;
@@ -351,7 +351,7 @@ async function sendText() {
     });
     elements.textTitle.value = "";
     elements.textInput.value = "";
-    toast("已发送");
+    toast("Sent");
     refreshItems();
   } catch (error) {
     toast(error.message);
@@ -362,7 +362,7 @@ async function copyItemText(item) {
   try {
     const payload = await api(`/api/items/${item.id}`);
     await navigator.clipboard.writeText(payload.item.text_content || "");
-    toast("已复制");
+    toast("Copied");
   } catch (error) {
     toast(error.message);
   }
@@ -390,7 +390,7 @@ async function downloadItem(item) {
 }
 
 async function deleteItem(item) {
-  if (!window.confirm("删除这条记录？")) return;
+  if (!window.confirm("Delete this item?")) return;
   try {
     await api(`/api/items/${item.id}`, { method: "DELETE" });
     state.items = state.items.filter((entry) => entry.id !== item.id);
